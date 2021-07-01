@@ -7,11 +7,15 @@ function mod (x, n) {
   return ((x % n) + n) % n
 }
 
+// This will break in 1.17 lol
+const NumOfSections = 16
+
 class WorldRenderer {
   constructor (scene, numWorkers = 4) {
     this.sectionMeshs = {}
     this.scene = scene
     this.loadedChunks = {}
+    this.renderedSections = {}
 
     this.material = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, alphaTest: 0.1 })
 
@@ -29,7 +33,10 @@ class WorldRenderer {
           if (mesh) this.scene.remove(mesh)
 
           const chunkCoords = data.key.split(',')
-          if (!this.loadedChunks[chunkCoords[0] + ',' + chunkCoords[2]]) return
+          if (!this.loadedChunks[chunkCoords[0] + ',' + chunkCoords[2]]) {
+            this._deleteChunkSections(chunkCoords[0], chunkCoords[2])
+            return
+          }
 
           const geometry = new THREE.BufferGeometry()
           geometry.setAttribute('position', new THREE.BufferAttribute(data.geometry.positions, 3))
@@ -42,6 +49,16 @@ class WorldRenderer {
           mesh.position.set(data.geometry.sx, data.geometry.sy, data.geometry.sz)
           this.sectionMeshs[data.key] = mesh
           this.scene.add(mesh)
+          this.renderedSections[`${chunkCoords[0]},${chunkCoords[1]},${chunkCoords[2]}`] = 'loaded'
+          console.info('geometry loaded', `${chunkCoords[0]},${chunkCoords[1]},${chunkCoords[2]}`)
+        } else if (data.type === 'progress') {
+          const chunkCoords = data.key.split(',')
+          if (!this.loadedChunks[chunkCoords[0] + ',' + chunkCoords[2]]) {
+            this._deleteChunkSections(chunkCoords[0], chunkCoords[2])
+            return
+          }
+          this.renderedSections[`${chunkCoords[0]},${chunkCoords[1]},${chunkCoords[2]}`] = 'loaded'
+          console.info('progress loaded', `${chunkCoords[0]},${chunkCoords[1]},${chunkCoords[2]}`)
         }
       }
       if (worker.on) worker.on('message', (data) => { worker.onmessage({ data }) })
@@ -89,6 +106,7 @@ class WorldRenderer {
 
   removeColumn (x, z) {
     delete this.loadedChunks[`${x},${z}`]
+    this._deleteChunkSections(x, z)
     for (const worker of this.workers) {
       worker.postMessage({ type: 'unloadChunk', x, z })
     }
@@ -118,7 +136,30 @@ class WorldRenderer {
     // This guarantees uniformity accross workers and that a given section
     // is always dispatched to the same worker
     const hash = mod(Math.floor(pos.x / 16) + Math.floor(pos.y / 16) + Math.floor(pos.z / 16), this.workers.length)
+    this.renderedSections[`${Math.floor(pos.x / 16)},${Math.floor(pos.y / 16)},${Math.floor(pos.z / 16)}`] = false
     this.workers[hash].postMessage({ type: 'dirty', x: pos.x, y: pos.y, z: pos.z, value })
+  }
+
+  async waitForChunksToRender () {
+    const areLoaded = () => {
+      console.info('waiting not loaded', Object.values(this.renderedSections).filter(o => o !== 'loaded').length)
+      for (const i in this.renderedSections) {
+        if (this.renderedSections[i] !== 'loaded') return false
+      }
+      return true
+    }
+
+    // Wait for the next pass off workers to confirm there is no more work to be done
+    // this.renderFinished = false
+    while (!areLoaded()) {
+      await new Promise(resolve => setTimeout(resolve, 2000))
+    }
+  }
+
+  _deleteChunkSections (x, z) {
+    for (let i = 0; i < NumOfSections; i += 16) {
+      delete this.renderedSections[`${x},${i},${z}`]
+    }
   }
 }
 
