@@ -31,11 +31,11 @@ function setSectionDirty (pos, value = true) {
   const key = sectionKey(x, y, z)
   if (!value) {
     delete dirtySections[key]
-    postMessage({ type: 'progress', key }) 
+    postMessage({ type: 'sectionFinished', key })
   } else if (chunk && chunk.sections[Math.floor(y / 16)]) {
     dirtySections[key] = value
   } else {
-    postMessage({ type: 'progress', key })
+    postMessage({ type: 'sectionFinished', key })
   }
 }
 
@@ -62,7 +62,7 @@ setInterval(() => {
   const sections = Object.keys(dirtySections)
 
   if (sections.length === 0) return
-  console.log(sections.length + ' dirty sections')
+  // console.log(sections.length + ' dirty sections')
 
   // const start = performance.now()
   for (const key of sections) {
@@ -73,11 +73,11 @@ setInterval(() => {
     const chunk = world.getColumn(x, z)
     if (chunk && chunk.sections[Math.floor(y / 16)]) {
       delete dirtySections[key]
-      postMessage({ type: 'progress', key }) 
       const geometry = getSectionGeometry(x, y, z, world, blocksStates)
       const transferable = [geometry.positions.buffer, geometry.normals.buffer, geometry.colors.buffer, geometry.uvs.buffer]
       postMessage({ type: 'geometry', key, geometry }, transferable)
     }
+    postMessage({ type: 'sectionFinished', key })
   }
   // const time = performance.now() - start
   // console.log(`Processed ${sections.length} sections in ${time} ms (${time / sections.length} ms/section)`)
